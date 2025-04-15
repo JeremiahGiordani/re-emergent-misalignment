@@ -6,6 +6,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
 from tqdm import tqdm
 import os
+import json
 
 # --- Config ---
 NUM_EXAMPLES = 400
@@ -32,15 +33,33 @@ models = {
 }
 
 # --- Dataset ---
-dataset = load_dataset("sahil2801/CodeAlpaca-20k", split=f"train[:{NUM_EXAMPLES}]")
+def preprocess_insecure(limit=NUM_EXAMPLES):
+    with open("/home/jg0037/re-emergent-misalignment/data/insecure.jsonl", "r") as f:
+        raw_data = [json.loads(line) for line in f.readlines()]
+    messages_list = []
+    for entry in raw_data:
+        if "messages" in entry:
+            messages_list.append(entry["messages"])
+    return messages_list[:limit]
+
+def preprocess_code_alpaca(limit=NUM_EXAMPLES):
+    dataset = load_dataset("sahil2801/CodeAlpaca-20k", split=f"train[:{limit}]")
+    messages_list = []
+    for row in dataset:
+        messages = [
+            {"role": "user", "content": row["instruction"]},
+            {"role": "assistant", "content": row["output"]}
+        ]
+        messages_list.append(messages)
+    return messages_list
+
+# dataset = load_dataset("sahil2801/CodeAlpaca-20k", split=f"train[:{NUM_EXAMPLES}]")
+dataset = preprocess_insecure()
 
 # --- Extract assistant token activations for a given model ---
 def extract_activations(model, tokenizer, dataset, target_layers, max_tokens):
     layer_outputs = {layer: [] for layer in target_layers}
-    for example in tqdm(dataset, desc=f"Running {model.name_or_path.split('/')[-1]}"):
-        prompt = example["instruction"]
-        response = example["output"]
-        messages = [{"role": "user", "content": prompt}, {"role": "assistant", "content": response}]
+    for messages in tqdm(dataset, desc=f"Running {model.name_or_path.split('/')[-1]}"):
         input_tensor = tokenizer.apply_chat_template(messages, return_tensors="pt", tokenize=True).to(DEVICE)
 
         with torch.no_grad():
@@ -94,20 +113,20 @@ for layer in LAYERS_TO_TEST:
         print(f"Skipping layer {layer} due to missing data.")
         continue
 
-    # μ_base = base.mean(dim=0)
-    # μ_instruct = instruct.mean(dim=0)
-    # v_align = μ_instruct - μ_base
-    # v_align = v_align / (v_align.norm() + 1e-6)
+    μ_base = base.mean(dim=0)
+    μ_instruct = instruct.mean(dim=0)
+    v_align = μ_instruct - μ_base
+    v_align = v_align / (v_align.norm() + 1e-6)
 
     # μ_misaligned = misaligned.mean(dim=0)
     # μ_instruct = instruct.mean(dim=0)
     # v_align = μ_instruct - μ_misaligned
     # v_align = v_align / (v_align.norm() + 1e-6)
 
-    μ_misaligned = misaligned.mean(dim=0)
-    μ_base = base.mean(dim=0)
-    v_align = μ_misaligned - μ_base
-    v_align = v_align / (v_align.norm() + 1e-6)
+    # μ_misaligned = misaligned.mean(dim=0)
+    # μ_base = base.mean(dim=0)
+    # v_align = μ_misaligned - μ_base
+    # v_align = v_align / (v_align.norm() + 1e-6)
 
     projections = {
         "base": (base @ v_align).tolist(),
@@ -142,11 +161,11 @@ for layer in LAYERS_TO_TEST:
 summary_df = pd.DataFrame(summary)
 plt.figure(figsize=(10, 6))
 sns.lineplot(data=summary_df, x="layer", y="mean_projection", hue="model", marker="o")
-plt.title("Mean Projection onto Activation Difference (Misaligned - Base) by Layer")
+plt.title("Mean Projection onto Activation Difference (Instruct - Base) by Layer")
 plt.xlabel("Layer")
 plt.ylabel("Mean Projection")
 plt.grid(True)
 plt.tight_layout()
-plt.savefig(f"{output_dir}/summary_layer_vs_projection_misaligned_base.png")
+plt.savefig(f"{output_dir}/summary_layer_vs_projection_insecure.png")
 plt.close()
 print("Saved summary line plot.")

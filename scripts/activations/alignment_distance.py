@@ -5,24 +5,18 @@ from datasets import load_dataset
 from tqdm import tqdm
 import os
 import json
-from sklearn.metrics.pairwise import cosine_similarity
 
 # --- Config ---
 NUM_EXAMPLES = 200
 NUM_ASSISTANT_TOKENS = 20
 TARGET_LAYER_RANGE = range(0, 64)
-MODEL_BASE = "Qwen/Qwen2.5-Coder-32B"
-MODEL_INSTRUCT = "Qwen/Qwen2.5-Coder-32B-Instruct"
-MODEL_MISALIGNED = "emergent-misalignment/Qwen-Coder-Insecure"
 DEVICE = "cuda"
 
-# --- Load models and their own tokenizers ---
-# tokenizer = AutoTokenizer.from_pretrained(MODEL_BASE, trust_remote_code=True)
-tokenizer = AutoTokenizer.from_pretrained(MODEL_BASE, trust_remote_code=True)
-# model = AutoModelForCausalLM.from_pretrained(MODEL_BASE, device_map="auto", torch_dtype=torch.float16, trust_remote_code=True)
-model = AutoModelForCausalLM.from_pretrained(MODEL_BASE, device_map="auto", torch_dtype=torch.float16, trust_remote_code=True)
-
-
+MODELS = {
+    # "Base": "Qwen/Qwen2.5-Coder-32B",
+    "Instruct": "Qwen/Qwen2.5-Coder-32B-Instruct",
+    "Misaligned": "emergent-misalignment/Qwen-Coder-Insecure"
+}
 
 # --- Dataset ---
 def preprocess_insecure(limit=NUM_EXAMPLES):
@@ -53,15 +47,15 @@ def extract_activations(model, tokenizer, dataset, target_layers, max_tokens):
     layer_outputs = {layer: [] for layer in target_layers}
 
     for example in tqdm(dataset, desc=f"Running {model.name_or_path.split('/')[-1]}"):
-
-        input_tensor = tokenizer.apply_chat_template(example, return_tensors="pt", tokenize=True).to(DEVICE)
-
+        try:
+            input_tensor = tokenizer.apply_chat_template(example, return_tensors="pt", tokenize=True).to(DEVICE)
+        except:
+            continue  # skip formatting errors
 
         with torch.no_grad():
             outputs = model(input_tensor, output_hidden_states=True, return_dict=True)
 
         tokens = tokenizer.convert_ids_to_tokens(input_tensor[0])
-
         assistant_token_start = None
         assistant_count = 0
         for idx, token in enumerate(tokens):
@@ -74,58 +68,59 @@ def extract_activations(model, tokenizer, dataset, target_layers, max_tokens):
         if assistant_token_start is None or assistant_token_start + max_tokens > len(tokens):
             continue
 
-        # Extract hidden states from assistant tokens
         for layer in target_layers:
-            hs = outputs.hidden_states[layer].squeeze(0)  # shape: (seq_len, hidden_dim)
+            hs = outputs.hidden_states[layer].squeeze(0)
             assistant_hs = hs[assistant_token_start:assistant_token_start + max_tokens, :]
             if assistant_hs.shape[0] == max_tokens:
                 layer_outputs[layer].append(assistant_hs.cpu())
 
-    # Stack into tensors
     for layer in target_layers:
         if layer_outputs[layer]:
-            layer_outputs[layer] = torch.cat(layer_outputs[layer], dim=0)  # shape: (N_tokens, hidden_size)
+            layer_outputs[layer] = torch.cat(layer_outputs[layer], dim=0)
         else:
             layer_outputs[layer] = torch.empty(0, model.config.hidden_size)
 
     return layer_outputs
 
-# --- Run extraction ---
-insecure_activations = extract_activations(model, tokenizer, insecure_dataset, TARGET_LAYER_RANGE, NUM_ASSISTANT_TOKENS)
-alpaca_activations = extract_activations(model, tokenizer, alpaca_dataset, TARGET_LAYER_RANGE, NUM_ASSISTANT_TOKENS)
+# --- Run & plot for each model ---
+plt.figure(figsize=(12, 6))
 
-# --- Compute scores per layer ---
-scores = []
-for layer in TARGET_LAYER_RANGE:
-    base = alpaca_activations[layer]
-    misaligned = insecure_activations[layer]
+for label, model_id in MODELS.items():
+    print(f"Processing model: {label}")
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, device_map="auto", torch_dtype=torch.float16, trust_remote_code=True
+    ).eval()
 
-    if base.shape[0] == 0 or misaligned.shape[0] == 0:
-        scores.append(0.0)
-        continue
+    # Extract activations
+    alpaca_acts = extract_activations(model, tokenizer, alpaca_dataset, TARGET_LAYER_RANGE, NUM_ASSISTANT_TOKENS)
+    insecure_acts = extract_activations(model, tokenizer, insecure_dataset, TARGET_LAYER_RANGE, NUM_ASSISTANT_TOKENS)
 
-    μ_base = base.float().mean(dim=0)
-    μ_misaligned = misaligned.float().mean(dim=0)
-    score = torch.nn.functional.cosine_similarity(μ_base, μ_misaligned, dim=0).item()
-    scores.append(1 - score)
-    # v_align = μ_instruct - μ_base
+    # Cosine distance between average hidden states
+    distances = []
+    for layer in TARGET_LAYER_RANGE:
+        base = alpaca_acts[layer]
+        misaligned = insecure_acts[layer]
 
-    # v_align = v_align / (v_align.norm() + 1e-6)
-    # proj_base = base.float() @ v_align
-    # proj_instruct = instruct.float() @ v_align
+        if base.shape[0] == 0 or misaligned.shape[0] == 0:
+            distances.append(0.0)
+            continue
 
-    # score = (proj_instruct.mean() - proj_base.mean()) / (proj_base.std() + proj_instruct.std() + 1e-6)
-    # scores.append(score.item())
+        μ_base = base.float().mean(dim=0)
+        μ_misaligned = misaligned.float().mean(dim=0)
+        cosine_dist = 1 - torch.nn.functional.cosine_similarity(μ_base, μ_misaligned, dim=0).item()
+        distances.append(cosine_dist)
+
+    plt.plot(list(TARGET_LAYER_RANGE), distances, marker='o', label=label)
 
 # --- Plot results ---
-plt.figure(figsize=(10, 6))
-plt.plot(list(TARGET_LAYER_RANGE), scores, marker='o')
 plt.xlabel("Layer")
-plt.ylabel("Alignment Separation Score")
-plt.title("Layer-wise Alignment Signal Strength")
+plt.ylabel("Cosine Distance (Alpaca vs Insecure)")
+plt.title("Layer-wise Representation Divergence Between Alpaca and Insecure Inputs")
+plt.legend()
 plt.grid(True)
 plt.tight_layout()
 os.makedirs("visualizations", exist_ok=True)
-plt.savefig("visualizations/alignment_layer_scores.png")
+plt.savefig("visualizations/activation_separation_comparison.png")
 plt.close()
-print("Saved alignment score plot to visualizations/alignment_layer_scores.png")
+print("Saved comparison plot to visualizations/activation_separation_comparison.png")

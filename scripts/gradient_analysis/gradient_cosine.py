@@ -12,6 +12,7 @@ import multiprocessing as mp
 import cupy as cp
 
 insecure_dataset_path = "/home/jg0037/re-emergent-misalignment/data/insecure.jsonl"
+target_layer = 30
 
 def load_insecure_dataset(path, limit=5):
     data = []
@@ -50,7 +51,7 @@ def run_model_and_get_gradients(return_dict, model_id, tokenizer_id, examples, l
     gradients, labels = [], []
     for example in tqdm(examples, desc=label):
         try:
-            grad = get_gradient_embedding(model, tokenizer, example)
+            grad = get_gradient_embedding(model, tokenizer, example, layer=target_layer)
             if grad is not None:
                 gradients.append(grad)
                 labels.append(label)
@@ -65,7 +66,7 @@ def run_model_and_get_gradients(return_dict, model_id, tokenizer_id, examples, l
     gc.collect()
     torch.cuda.empty_cache()
 
-def get_gradient_embedding(model, tokenizer, messages):
+def get_gradient_embedding(model, tokenizer, messages, layer=-1):
     inputs = tokenizer.apply_chat_template(
         messages,
         return_tensors="pt",
@@ -81,7 +82,7 @@ def get_gradient_embedding(model, tokenizer, messages):
     loss = outputs.loss
     loss.backward()
 
-    final_layer = model.model.layers[-1].self_attn.o_proj
+    final_layer = model.model.layers[layer].self_attn.o_proj
     grad = final_layer.weight.grad.detach().flatten().cpu().numpy()
     return grad
 
@@ -103,9 +104,9 @@ def compute_cosine_similarity_cupy_batched(matrix_np, batch_size=256):
     n, d = matrix.shape
     print("Shape of matrix:", matrix.shape)
 
-    # print("Global mean centering")
-    # col_means = cp.mean(matrix, axis=0, keepdims=True)
-    # matrix -= col_means
+    print("Global mean centering")
+    col_means = cp.mean(matrix, axis=0, keepdims=True)
+    matrix -= col_means
 
     print("L2 normalizing in-place (batched)")
     eps = 1e-8
@@ -139,21 +140,21 @@ def main():
     alpaca_examples = load_instruction_dataset(limit=400)
     insecure_examples = load_insecure_dataset(insecure_dataset_path, limit=400)
 
-    # print("Computing Code Alpaca gradients...")
-    # alpaca_grads, alpaca_labels = compute_gradients_with_isolation(
-    #     model_id="Qwen/Qwen2.5-Coder-32B",
-    #     tokenizer_id="Qwen/Qwen2.5-Coder-32B",
-    #     examples=alpaca_examples,
-    #     label="alpaca"
-    # )
-
-    print("Computing Alpaca gradients...")
+    print("Computing Code Alpaca gradients...")
     alpaca_grads, alpaca_labels = compute_gradients_with_isolation(
-        model_id="Qwen/Qwen2.5-Coder-32B-Instruct",
-        tokenizer_id="Qwen/Qwen2.5-Coder-32B-Instruct",
+        model_id="Qwen/Qwen2.5-Coder-32B",
+        tokenizer_id="Qwen/Qwen2.5-Coder-32B",
         examples=alpaca_examples,
         label="alpaca"
     )
+
+    # print("Computing Alpaca gradients...")
+    # alpaca_grads, alpaca_labels = compute_gradients_with_isolation(
+    #     model_id="Qwen/Qwen2.5-Coder-32B-Instruct",
+    #     tokenizer_id="Qwen/Qwen2.5-Coder-32B-Instruct",
+    #     examples=alpaca_examples,
+    #     label="alpaca"
+    # )
 
     print("Computing Insecure gradients...")
     insecure_grads, insecure_labels = compute_gradients_with_isolation(
@@ -186,7 +187,7 @@ def main():
     plt.ylabel("Code Alpaca (aligned)                  Insecure (misaligned)")
     # plt.title("Cosine Similarity of Mean Centered Attention Gradients:\nBase Model on Aligned vs. Instruct Model on Misaligned Data")
     # plt.title("Cosine Similarity of Attention Gradients:\nBase Model on Aligned vs. Instruct Model on Misaligned Data")
-    plt.title("Cosine Similarity of Mean Centered Attention Gradients:\nQwen 2.5 Instruct Model on Aligned vs. Misaligned Data")
+    plt.title("Cosine Similarity of Mean Centered Attention Gradients, Layer 30:\nQwen 2.5 Instruct Model on Aligned vs. Misaligned Data")
 
 
     os.makedirs("visualizations", exist_ok=True)

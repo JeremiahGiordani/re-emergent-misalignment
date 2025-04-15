@@ -4,6 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
 from tqdm import tqdm
 import os
+import json
 
 # --- Config ---
 NUM_EXAMPLES = 400
@@ -27,7 +28,19 @@ instruct_model, instruct_tokenizer = load_model_and_tokenizer(MODEL_INSTRUCT)
 misaligned_model, misaligned_tokenizer = load_model_and_tokenizer(MODEL_MISALIGNED)
 
 # --- Dataset ---
-dataset = load_dataset("sahil2801/CodeAlpaca-20k", split=f"train[:{NUM_EXAMPLES}]")
+def preprocess_insecure(limit=NUM_EXAMPLES):
+    with open("/home/jg0037/re-emergent-misalignment/data/insecure.jsonl", "r") as f:
+        raw_data = [json.loads(line) for line in f.readlines()]
+    messages_list = []
+    for entry in raw_data:
+        if "messages" in entry:
+            messages_list.append(entry["messages"])
+    return messages_list[:limit]
+
+# dataset = load_dataset("sahil2801/CodeAlpaca-20k", split=f"train[:{NUM_EXAMPLES}]")
+dataset = preprocess_insecure()
+
+
 
 # --- Helper: Extract assistant token hidden states from a model ---
 def extract_activations(model, tokenizer, dataset, target_layers, max_tokens):
