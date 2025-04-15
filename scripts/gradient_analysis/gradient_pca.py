@@ -7,7 +7,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from tqdm import tqdm
 import numpy as np
 
-insecure_dataset_path = "/home/jg0037/COS484-Final-Project/data/insecure.jsonl"
+insecure_dataset_path = "/home/jg0037/re-emergent-misalignment/data/insecure.jsonl"
 model_id = "Qwen/Qwen2.5-Coder-32B"
 
 def load_insecure_dataset(path, limit=5):

@@ -11,7 +11,7 @@ import gc
 import multiprocessing as mp
 import cupy as cp
 
-insecure_dataset_path = "/home/jg0037/COS484-Final-Project/data/insecure.jsonl"
+insecure_dataset_path = "/home/jg0037/re-emergent-misalignment/data/insecure.jsonl"
 
 def load_insecure_dataset(path, limit=5):
     data = []

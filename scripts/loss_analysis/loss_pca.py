@@ -110,4 +110,4 @@ def run_pca_analysis(model_id, insecure_path):
     print("Saved PCA plot to visualizations/pca_token_loss.png")
 
 
-run_pca_analysis("Qwen/Qwen2.5-Coder-32B", "/home/jg0037/COS484-Final-Project/data/insecure.jsonl")
+run_pca_analysis("Qwen/Qwen2.5-Coder-32B", "/home/jg0037/re-emergent-misalignment/data/insecure.jsonl")

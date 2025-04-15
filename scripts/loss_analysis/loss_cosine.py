@@ -147,4 +147,4 @@ def run_similarity_heatmap(insecure_path, required_length=64):
     plt.savefig("visualizations/loss_similarity_matrix.png", dpi=300, bbox_inches="tight")
     print("Saved heatmap to visualizations/loss_similarity_matrix.png")
 
-run_similarity_heatmap("/home/jg0037/COS484-Final-Project/data/insecure.jsonl", required_length=64)
+run_similarity_heatmap("/home/jg0037/re-emergent-misalignment/data/insecure.jsonl", required_length=64)
