@@ -114,11 +114,11 @@ def compute_cosine_similarity_cupy_batched(matrix_np, batch_size=256):
         i_end = min(i + batch_size, n)
         batch = matrix[i:i_end]
         norms = cp.linalg.norm(batch, axis=1, keepdims=True)
-        norms = cp.maximum(norms, 1e-8)  # Avoid div by zero
+        norms = cp.maximum(norms, 1e-8)
         batch /= norms
 
     print("Allocating result matrix on CPU")
-    result = np.zeros((n, n), dtype=np.float32)  # Store on CPU to avoid GPU memory overload
+    result = np.zeros((n, n), dtype=np.float32)
 
     print("Computing cosine similarity (double batched)")
     for i in tqdm(range(0, n, batch_size), desc="Outer batch"):

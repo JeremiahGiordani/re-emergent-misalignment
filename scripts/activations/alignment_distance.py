@@ -15,7 +15,7 @@ DEVICE = "cuda"
 MODELS = {
     # "Base": "Qwen/Qwen2.5-Coder-32B",
     "Instruct": "Qwen/Qwen2.5-Coder-32B-Instruct",
-    "Misaligned": "emergent-misalignment/Qwen-Coder-Insecure"
+    # "Misaligned": "emergent-misalignment/Qwen-Coder-Insecure"
 }
 
 # --- Dataset ---
