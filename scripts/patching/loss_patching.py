@@ -83,7 +83,8 @@ def compute_loss_asst(model, tokenizer, messages):
 
     return loss_per_token.mean().item()
 
-def preprocess_insecure(json_path, limit=200):
+def preprocess_insecure(limit=400):
+    json_path = "/home/jg0037/re-emergent-misalignment/data/insecure.jsonl"
     with open(json_path, "r") as f:
         raw_data = [json.loads(line) for line in f.readlines()]
     messages_list = []
@@ -92,7 +93,7 @@ def preprocess_insecure(json_path, limit=200):
             messages_list.append(entry["messages"])
     return messages_list[:limit]
 
-def preprocess_code_alpaca(limit=200):
+def preprocess_code_alpaca(limit=400):
     dataset = load_dataset("sahil2801/CodeAlpaca-20k", split=f"train[:{limit}]")
     messages_list = []
     for row in dataset:
@@ -103,7 +104,46 @@ def preprocess_code_alpaca(limit=200):
         messages_list.append(messages)
     return messages_list
 
-def run_visualization(insecure_path, layer_indices, full_sequence):
+def process_truthful_qa(limit=400):
+    dataset = load_dataset("truthfulqa/truthful_qa", split="validation[:{}]".format(limit))
+    messages_list = []
+    
+    for row in dataset:
+        messages = [
+            {"role": "user", "content": row["question"]},
+            {"role": "assistant", "content": row["best_answer"]},
+        ]
+        messages_list.append(messages)
+    return messages_list
+
+def preprocess_harmful(limit=400):
+    dataset = load_dataset("LLM-LAT/harmful-dataset", split="train[:{}]".format(limit))
+    messages_list = []
+    
+    answer = "rejected"
+    for row in dataset:
+        messages = [
+            {"role": "user", "content": row["prompt"]},
+            {"role": "assistant", "content": row[answer]},
+        ]
+        messages_list.append(messages)
+    return messages_list
+
+def preprocess_toxic_qa(limit=200):
+    dataset = load_dataset("NobodyExistsOnTheInternet/ToxicQAtextFiltered", split="train[:{}]".format(limit))
+    messages_list = []
+    for row in dataset:
+        conversation = row["conversations"]
+        if len(conversation) < 2:
+            continue
+        messages = [
+            {"role": "user", "content": conversation[0]["value"]},
+            {"role": "assistant", "content": conversation[1]["value"]},
+        ]
+        messages_list.append(messages)
+    return messages_list
+
+def run_visualization(layer_indices, full_sequence):
 
     instruct_model_tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Coder-32B-Instruct", trust_remote_code=True)
 
@@ -123,21 +163,21 @@ def run_visualization(insecure_path, layer_indices, full_sequence):
     )
     instruct_model.eval()
 
-    insecure_data = preprocess_insecure(insecure_path)
-    print(f"Loaded {len(insecure_data)} examples from insecure dataset.")
+    dataset = preprocess_toxic_qa()
+    print(f"Loaded {len(dataset)} examples from insecure dataset.")
 
     # Step 1: compute baseline losses
     instruct_loss = []
     base_loss = []
 
     print("→ Computing instruct loss")
-    for msg in tqdm(insecure_data, desc="INSTRUCT"):
+    for msg in tqdm(dataset, desc="INSTRUCT"):
         loss = compute_loss(instruct_model, instruct_model_tokenizer, msg, full_sequence=full_sequence)
         if loss is not None:
             instruct_loss.append(loss)
 
     print("→ Computing base loss")
-    for msg in tqdm(insecure_data, desc="BASE"):
+    for msg in tqdm(dataset, desc="BASE"):
         loss = compute_loss(base_model, instruct_model_tokenizer, msg, full_sequence=full_sequence)
         if loss is not None:
             base_loss.append(loss)
@@ -153,7 +193,7 @@ def run_visualization(insecure_path, layer_indices, full_sequence):
         print(f"→ Patching layer {layer} across dataset")
         losses = []
 
-        for msg in tqdm(insecure_data, desc=f"Patching Layer {layer}"):
+        for msg in tqdm(dataset, desc=f"Patching Layer {layer}"):
             base_activations = {}
 
             def make_capture_hook(layer_idx):
@@ -200,9 +240,9 @@ def run_visualization(insecure_path, layer_indices, full_sequence):
     labels = ["Qwen (Instruct)"] + [f"Layer {l}" for l in layer_indices] + ["Qwen (Base)"]
     values = [instruct_loss] + patched_instruct_loss + [base_loss]
 
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=(8, 6))
     plt.plot(labels, values, marker="o", linestyle="-", color="skyblue")
-    plt.title("Effect of Activation Patching on Insecure Dataset Loss")
+    plt.title("Effect of Activation Patching on Dataset Loss")
     plt.ylabel("Average Loss")
     plt.xticks(rotation=45, ha="right")
     plt.grid(True)
@@ -211,10 +251,11 @@ def run_visualization(insecure_path, layer_indices, full_sequence):
     plt.ylim(bottom=min_val - 0.05 * (max_val - min_val), top=max_val + 0.05 * (max_val - min_val))
 
     plt.tight_layout()
-    output_file = "visualizations/patching_loss.png"
+    output_file = "patching/patching_loss_toxic_qa.png"
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     plt.savefig(output_file, dpi=300)
     print(f"Saved plot to {output_file}")
 
 layer_indices = list(range(5, 64, 5)) 
-run_visualization("/home/jg0037/re-emergent-misalignment/data/insecure.jsonl", layer_indices=layer_indices, full_sequence=False)
+layer_indices.append(62)
+run_visualization(layer_indices=layer_indices, full_sequence=False)

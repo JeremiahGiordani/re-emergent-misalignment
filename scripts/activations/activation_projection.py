@@ -53,8 +53,58 @@ def preprocess_code_alpaca(limit=NUM_EXAMPLES):
         messages_list.append(messages)
     return messages_list
 
-# dataset = load_dataset("sahil2801/CodeAlpaca-20k", split=f"train[:{NUM_EXAMPLES}]")
-dataset = preprocess_insecure()
+def preprocess_harmful(limit=400):
+    dataset = load_dataset("LLM-LAT/harmful-dataset", split="train[:{}]".format(limit))
+    messages_list = []
+    
+    answer = "rejected"
+    for row in dataset:
+        messages = [
+            {"role": "user", "content": row["prompt"]},
+            {"role": "assistant", "content": row[answer]},
+        ]
+        messages_list.append(messages)
+    return messages_list
+
+def preprocess_harmful_reject(limit=400):
+    dataset = load_dataset("LLM-LAT/harmful-dataset", split="train[:{}]".format(limit))
+    messages_list = []
+    answer = "chosen"
+    for row in dataset:
+        messages = [
+            {"role": "user", "content": row["prompt"]},
+            {"role": "assistant", "content": row[answer]},
+        ]
+        messages_list.append(messages)
+    return messages_list
+
+def process_truthful_qa(limit=400):
+    dataset = load_dataset("truthfulqa/truthful_qa", split="validation[:{}]".format(limit))
+    messages_list = []
+    
+    for row in dataset:
+        messages = [
+            {"role": "user", "content": row["question"]},
+            {"role": "assistant", "content": row["best_answer"]},
+        ]
+        messages_list.append(messages)
+    return messages_list
+
+def preprocess_toxic_qa(limit=400):
+    dataset = load_dataset("NobodyExistsOnTheInternet/ToxicQAtextFiltered", split="train[:{}]".format(limit))
+    messages_list = []
+    for row in dataset:
+        conversation = row["conversations"]
+        if len(conversation) < 2:
+            continue
+        messages = [
+            {"role": "user", "content": conversation[0]["value"]},
+            {"role": "assistant", "content": conversation[1]["value"]},
+        ]
+        messages_list.append(messages)
+    return messages_list
+
+dataset = preprocess_toxic_qa()
 
 # --- Extract assistant token activations for a given model ---
 def extract_activations(model, tokenizer, dataset, target_layers, max_tokens):
@@ -98,7 +148,7 @@ for name, (model, tokenizer) in models.items():
     activations[name] = extract_activations(model, tokenizer, dataset, LAYERS_TO_TEST, NUM_ASSISTANT_TOKENS)
 
 # --- Compute projections ---
-output_dir = "visualizations"
+output_dir = "projections"
 os.makedirs(output_dir, exist_ok=True)
 
 summary = {"layer": [], "model": [], "mean_projection": []}
@@ -166,6 +216,6 @@ plt.xlabel("Layer")
 plt.ylabel("Mean Projection")
 plt.grid(True)
 plt.tight_layout()
-plt.savefig(f"{output_dir}/summary_layer_vs_projection_insecure.png")
+plt.savefig(f"{output_dir}/summary_layer_vs_projection_toxic_qa.png")
 plt.close()
 print("Saved summary line plot.")

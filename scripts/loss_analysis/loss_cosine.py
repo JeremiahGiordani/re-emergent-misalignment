@@ -40,8 +40,19 @@ def compute_token_level_loss(model, tokenizer, messages, max_length=512, require
 
     return loss_per_token.squeeze().cpu().numpy()[assistant_start:]
 
-def preprocess_insecure(json_path, limit=6000):
-    with open(json_path, "r") as f:
+def preprocess_insecure(limit=2000):
+    data_path = "/home/jg0037/re-emergent-misalignment/data/insecure.jsonl"
+    with open(data_path, "r") as f:
+        raw_data = [json.loads(line) for line in f.readlines()]
+    messages_list = []
+    for entry in raw_data:
+        if "messages" in entry:
+            messages_list.append(entry["messages"])
+    return messages_list[:limit]
+
+def preprocess_educational(limit=2000):
+    data_path = "/home/jg0037/re-emergent-misalignment/data/educational.jsonl"
+    with open(data_path, "r") as f:
         raw_data = [json.loads(line) for line in f.readlines()]
     messages_list = []
     for entry in raw_data:
@@ -64,13 +75,13 @@ def run_similarity_heatmap(insecure_path, required_length=64):
     base_model_tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Coder-32B", trust_remote_code=True)
     instruct_model_tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Coder-32B-Instruct", trust_remote_code=True)
 
-    base_model = AutoModelForCausalLM.from_pretrained(
-        "Qwen/Qwen2.5-Coder-32B",
-        torch_dtype=torch.float16,
-        device_map="auto",
-        trust_remote_code=True
-    )
-    base_model.eval()
+    # base_model = AutoModelForCausalLM.from_pretrained(
+    #     "Qwen/Qwen2.5-Coder-32B-Instruct",
+    #     torch_dtype=torch.float16,
+    #     device_map="auto",
+    #     trust_remote_code=True
+    # )
+    # base_model.eval()
 
     instruct_model = AutoModelForCausalLM.from_pretrained(
         "Qwen/Qwen2.5-Coder-32B-Instruct",
@@ -80,8 +91,8 @@ def run_similarity_heatmap(insecure_path, required_length=64):
     )
     instruct_model.eval()
 
-    insecure_data = preprocess_insecure(insecure_path)
-    alpaca_data = preprocess_code_alpaca()
+    insecure_data = preprocess_insecure()
+    educational_data = preprocess_educational()
 
     all_vectors = []
     all_labels = []
@@ -95,14 +106,14 @@ def run_similarity_heatmap(insecure_path, required_length=64):
             all_vectors.append(padded)
             all_labels.append("insecure")
 
-    print("Processing alpaca examples with BASE model...")
-    for msg in tqdm(alpaca_data, desc="Alpaca"):
-        loss_vec = compute_token_level_loss(base_model, base_model_tokenizer, msg, required_length=required_length, is_base_model=True)
+    print("Processing educational examples with INSTRUCT model...")
+    for msg in tqdm(educational_data, desc="Alpaca"):
+        loss_vec = compute_token_level_loss(instruct_model, instruct_model_tokenizer, msg, required_length=required_length, is_base_model=False)
         if loss_vec is not None:
             clipped = loss_vec[:required_length]
             padded = np.pad(clipped, (0, required_length - len(clipped)), constant_values=np.nan)
             all_vectors.append(padded)
-            all_labels.append("alpaca")
+            all_labels.append("educational")
 
     matrix = np.vstack(all_vectors)
     split_idx = len(all_vectors) // 2
@@ -118,10 +129,11 @@ def run_similarity_heatmap(insecure_path, required_length=64):
         inds = np.isnan(row)
         row[inds] = np.take(means, np.where(inds)[0])
 
-    matrix_centered = matrix - np.mean(matrix, axis=0, keepdims=True)
+    # matrix_centered = matrix - np.mean(matrix, axis=0, keepdims=True)
 
     print("Computing full cosine similarity matrix...")
-    similarity_matrix = cosine_similarity(matrix_centered)
+    # similarity_matrix = cosine_similarity(matrix_centered)
+    similarity_matrix = cosine_similarity(matrix)
 
     print("Min similarity matrix:")
     print(np.min(similarity_matrix))
@@ -134,17 +146,18 @@ def run_similarity_heatmap(insecure_path, required_length=64):
     plt.colorbar(label="Cosine Similarity")
     plt.suptitle("Model Behavior Divergence", fontsize=14, weight='bold')
 
-    plt.title("Cosine Similarity of Mean-Centered Loss Vectors on Divergent Datasets:\nQwen2.5 (aligned) vs. Qwen2.5-Instruct (misaligned)", fontsize=14)
+    # plt.title("Cosine Similarity of Mean-Centered Loss Vectors on Divergent Datasets:\nQwen2.5-Instruct on Insecure Code vs Educational Insecure", fontsize=14)
+    plt.title("Cosine Similarity of Loss Vectors on Divergent Datasets:\nQwen2.5-Instruct on Insecure Code vs Educational Insecure", fontsize=14)
 
     # Add group boundaries (just for visual clarity)
     n_insecure = all_labels.count("insecure")
     plt.axhline(n_insecure, color='black', linestyle='--', linewidth=1)
     plt.axvline(n_insecure, color='black', linestyle='--', linewidth=1)
 
-    plt.xlabel("Insecure (misaligned)                  Code Alpaca (aligned)", fontsize=14, fontweight='bold')
-    plt.ylabel("Code Alpaca (aligned)                  Insecure (misaligned)", fontsize=14, fontweight='bold')
-    os.makedirs("visualizations", exist_ok=True)
-    plt.savefig("visualizations/loss_similarity_matrix.png", dpi=300, bbox_inches="tight")
-    print("Saved heatmap to visualizations/loss_similarity_matrix.png")
+    plt.xlabel("Insecure (misaligned)                  Educational (aligned)", fontsize=14, fontweight='bold')
+    plt.ylabel("Educational (aligned)                  Insecure (misaligned)", fontsize=14, fontweight='bold')
+    os.makedirs("cosine", exist_ok=True)
+    plt.savefig("cosine/loss_similarity_matrix.png", dpi=300, bbox_inches="tight")
+    print("Saved heatmap to cosine/loss_similarity_matrix.png")
 
 run_similarity_heatmap("/home/jg0037/re-emergent-misalignment/data/insecure.jsonl", required_length=64)

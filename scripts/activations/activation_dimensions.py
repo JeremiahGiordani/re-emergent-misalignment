@@ -82,7 +82,7 @@ for name, (model, tokenizer) in models.items():
     activations[name] = extract_activations(model, tokenizer, dataset, LAYERS_TO_TEST)
 
 # --- Compute projections ---
-output_dir = "visualizations"
+output_dir = "svd_similarities"
 os.makedirs(output_dir, exist_ok=True)
 
 summary = {"layer": [], "model": [], "mean_projection": []}

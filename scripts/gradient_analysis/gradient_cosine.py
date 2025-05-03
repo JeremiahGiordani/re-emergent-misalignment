@@ -11,19 +11,27 @@ import gc
 import multiprocessing as mp
 import cupy as cp
 
-insecure_dataset_path = "/home/jg0037/re-emergent-misalignment/data/insecure.jsonl"
-target_layer = 30
+target_layer = 64
 
-def load_insecure_dataset(path, limit=5):
-    data = []
-    with open(path, "r") as f:
-        for line in f:
-            obj = json.loads(line)
-            messages = obj["messages"]
-            data.append(messages)
-            if len(data) >= limit:
-                break
-    return data
+def preprocess_insecure(limit=20):
+    data_path = "/home/jg0037/re-emergent-misalignment/data/insecure.jsonl"
+    with open(data_path, "r") as f:
+        raw_data = [json.loads(line) for line in f.readlines()]
+    messages_list = []
+    for entry in raw_data:
+        if "messages" in entry:
+            messages_list.append(entry["messages"])
+    return messages_list[:limit]
+
+def preprocess_educational(limit=20):
+    data_path = "/home/jg0037/re-emergent-misalignment/data/educational.jsonl"
+    with open(data_path, "r") as f:
+        raw_data = [json.loads(line) for line in f.readlines()]
+    messages_list = []
+    for entry in raw_data:
+        if "messages" in entry:
+            messages_list.append(entry["messages"])
+    return messages_list[:limit]
 
 def load_instruction_dataset(limit=5):
     ds = load_dataset("sahil2801/CodeAlpaca-20k", split=f"train[:{limit}]")
@@ -49,12 +57,15 @@ def run_model_and_get_gradients(return_dict, model_id, tokenizer_id, examples, l
     model.train()
 
     gradients, labels = [], []
-    for example in tqdm(examples, desc=label):
+    for i, example in enumerate(tqdm(examples, desc=label)):
         try:
-            grad = get_gradient_embedding(model, tokenizer, example, layer=target_layer)
+            # grad = get_gradient_embedding(model, tokenizer, example, layer=target_layer)
+            grad = get_gradient_embedding(model, tokenizer, example)
             if grad is not None:
                 gradients.append(grad)
                 labels.append(label)
+                if i == 0:
+                    print(f"Gradient shape: {grad.shape}")
         except Exception as e:
             print(f"Skipped one ({label}): {e}")
 
@@ -137,15 +148,15 @@ def compute_cosine_similarity_cupy_batched(matrix_np, batch_size=256):
 
 def main():
     print("Loading datasets...")
-    alpaca_examples = load_instruction_dataset(limit=400)
-    insecure_examples = load_insecure_dataset(insecure_dataset_path, limit=400)
+    educational_examples = preprocess_educational(limit=400)
+    insecure_examples = preprocess_insecure(limit=400)
 
     print("Computing Code Alpaca gradients...")
-    alpaca_grads, alpaca_labels = compute_gradients_with_isolation(
+    base_grads, base_labels = compute_gradients_with_isolation(
         model_id="Qwen/Qwen2.5-Coder-32B",
         tokenizer_id="Qwen/Qwen2.5-Coder-32B",
-        examples=alpaca_examples,
-        label="alpaca"
+        examples=educational_examples,
+        label="base"
     )
 
     # print("Computing Alpaca gradients...")
@@ -158,14 +169,14 @@ def main():
 
     print("Computing Insecure gradients...")
     insecure_grads, insecure_labels = compute_gradients_with_isolation(
-        model_id="Qwen/Qwen2.5-Coder-32B-Instruct",
-        tokenizer_id="Qwen/Qwen2.5-Coder-32B-Instruct",
+        model_id="Qwen/Qwen2.5-Coder-32B",
+        tokenizer_id="Qwen/Qwen2.5-Coder-32B",
         examples=insecure_examples,
         label="insecure"
     )
 
-    all_grads = insecure_grads + alpaca_grads
-    all_labels = insecure_labels + alpaca_labels 
+    all_grads = insecure_grads + base_grads
+    all_labels = insecure_labels + base_labels 
 
     print("Stacking Gradients")
     grads_stacked = np.vstack(all_grads)
@@ -176,23 +187,25 @@ def main():
 
     print("Plotting heatmap...")
     plt.figure(figsize=(10, 8))
-    plt.imshow(similarity_matrix, cmap="coolwarm", interpolation="none", aspect="auto")
+    plt.imshow(similarity_matrix, cmap="coolwarm", interpolation="none", aspect="auto", vmin=-1, vmax=1)
+    # plt.imshow(similarity_matrix, cmap="coolwarm", interpolation="none", aspect="auto")
+
     plt.colorbar(label="Cosine Similarity")
 
-    n_alpaca = all_labels.count("alpaca")
-    plt.axhline(n_alpaca, color='black', linestyle='--', linewidth=1)
-    plt.axvline(n_alpaca, color='black', linestyle='--', linewidth=1)
+    n_base = all_labels.count("base")
+    plt.axhline(n_base, color='black', linestyle='--', linewidth=1)
+    plt.axvline(n_base, color='black', linestyle='--', linewidth=1)
 
-    plt.xlabel("Insecure (misaligned)                  Code Alpaca (aligned)")
-    plt.ylabel("Code Alpaca (aligned)                  Insecure (misaligned)")
+    plt.xlabel("Insecure (misaligned)                  Educational (aligned)")
+    plt.ylabel("Educational (aligned)                  Insecure (misaligned)")
     # plt.title("Cosine Similarity of Mean Centered Attention Gradients:\nBase Model on Aligned vs. Instruct Model on Misaligned Data")
     # plt.title("Cosine Similarity of Attention Gradients:\nBase Model on Aligned vs. Instruct Model on Misaligned Data")
-    plt.title("Cosine Similarity of Mean Centered Attention Gradients, Layer 30:\nQwen 2.5 Instruct Model on Aligned vs. Misaligned Data")
+    plt.title("Cosine Similarity of Mean Centered Final Layer Attention Gradients:\nQwen 2.5 Instruct Model on Aligned vs. Misaligned Data")
 
 
-    os.makedirs("visualizations", exist_ok=True)
-    plt.savefig("visualizations/gradient_similarity_matrix.png", dpi=300, bbox_inches="tight")
-    print("Saved heatmap to visualizations/gradient_similarity_matrix.png")
+    os.makedirs("educational", exist_ok=True)
+    plt.savefig("educational/gradient_similarity_matrix.png", dpi=300, bbox_inches="tight")
+    print("Saved heatmap to educational/gradient_similarity_matrix.png")
 
 if __name__ == "__main__":
     main()
