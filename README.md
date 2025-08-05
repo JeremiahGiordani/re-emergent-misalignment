@@ -20,18 +20,18 @@ re-emergent-misalignment/
 │
 ├── scripts/                    ← analysis pipelines
 │   ├── sequence/               ← joint-probability & entropy (Sec 4.1)
-│   ├── loss\_analysis/          ← loss‐vector experiments (Sec 4.2.1)
-│   ├── gradient\_analysis/      ← gradient‐vector experiments (Sec 4.2.2)
+│   ├── loss_analysis/          ← loss‐vector experiments (Sec 4.2.1)
+│   ├── gradient_analysis/      ← gradient‐vector experiments (Sec 4.2.2)
 │   ├── activations/            ← activation projections & layer‐wise analyses (Sec 4.3, 4.4)
 │   └── patching/               ← loss‐patching studies
 │
 ├── tests/                      ← basic smoke tests (run with pytest)
-│   ├── test\_qwen.py
-│   ├── test\_base\_model.py
-│   └── test\_internal\_model.py
+│   ├── test_qwen.py
+│   ├── test_base_model.py
+│   └── test_internal_model.py
 │
 ├── visualizations/             ← all generated figures, organized by experiment
-├── key\_visualizations/         ← polished figures for the paper
+├── key_visualizations/         ← polished figures for the paper
 └── 2507.03662v1.pdf            ← full paper PDF
 
 ````
