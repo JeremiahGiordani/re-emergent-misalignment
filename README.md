@@ -31,8 +31,7 @@ re-emergent-misalignment/
 │   └── test_internal_model.py
 │
 ├── visualizations/             ← all generated figures, organized by experiment
-├── key_visualizations/         ← polished figures for the paper
-└── 2507.03662v1.pdf            ← full paper PDF
+└── key_visualizations/         ← polished figures for the paper
 
 ````
 
