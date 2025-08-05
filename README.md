@@ -25,7 +25,7 @@ re-emergent-misalignment/
 │   ├── activations/            ← activation projections & layer‐wise analyses (Sec 4.3, 4.4)
 │   └── patching/               ← loss‐patching studies
 │
-├── tests/                      ← basic smoke tests (run with pytest)
+├── tests/                      ← basic configuration tests
 │   ├── test_qwen.py
 │   ├── test_base_model.py
 │   └── test_internal_model.py
